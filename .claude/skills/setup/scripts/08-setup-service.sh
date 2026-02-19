@@ -31,20 +31,20 @@ if [ -z "$PLATFORM" ]; then
   esac
 fi
 
-NODE_PATH=$(which node)
+BUN_PATH=$(which bun)
 PROJECT_PATH="$PROJECT_ROOT"
 HOME_PATH="$HOME"
 
-log "Setting up service: platform=$PLATFORM node=$NODE_PATH project=$PROJECT_PATH"
+log "Setting up service: platform=$PLATFORM bun=$BUN_PATH project=$PROJECT_PATH"
 
 # Build first
 log "Building TypeScript"
-if ! npm run build >> "$LOG_FILE" 2>&1; then
+if ! bun run build >> "$LOG_FILE" 2>&1; then
   log "Build failed"
   cat <<EOF
 === NANOCLAW SETUP: SETUP_SERVICE ===
 SERVICE_TYPE: unknown
-NODE_PATH: $NODE_PATH
+BUN_PATH: $BUN_PATH
 PROJECT_PATH: $PROJECT_PATH
 STATUS: failed
 ERROR: build_failed
@@ -74,8 +74,8 @@ case "$PLATFORM" in
     <string>com.nanoclaw</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${NODE_PATH}</string>
-        <string>${PROJECT_PATH}/dist/index.js</string>
+        <string>${BUN_PATH}</string>
+        <string>${PROJECT_PATH}/src/index.ts</string>
     </array>
     <key>WorkingDirectory</key>
     <string>${PROJECT_PATH}</string>
@@ -117,7 +117,7 @@ PLISTEOF
     cat <<EOF
 === NANOCLAW SETUP: SETUP_SERVICE ===
 SERVICE_TYPE: launchd
-NODE_PATH: $NODE_PATH
+BUN_PATH: $BUN_PATH
 PROJECT_PATH: $PROJECT_PATH
 PLIST_PATH: $PLIST_PATH
 SERVICE_LOADED: $SERVICE_LOADED
@@ -140,7 +140,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=${NODE_PATH} ${PROJECT_PATH}/dist/index.js
+ExecStart=${BUN_PATH} ${PROJECT_PATH}/src/index.ts
 WorkingDirectory=${PROJECT_PATH}
 Restart=always
 RestartSec=5
@@ -170,7 +170,7 @@ UNITEOF
     cat <<EOF
 === NANOCLAW SETUP: SETUP_SERVICE ===
 SERVICE_TYPE: systemd
-NODE_PATH: $NODE_PATH
+BUN_PATH: $BUN_PATH
 PROJECT_PATH: $PROJECT_PATH
 UNIT_PATH: $UNIT_PATH
 SERVICE_LOADED: $SERVICE_LOADED
@@ -185,7 +185,7 @@ EOF
     cat <<EOF
 === NANOCLAW SETUP: SETUP_SERVICE ===
 SERVICE_TYPE: unknown
-NODE_PATH: $NODE_PATH
+BUN_PATH: $BUN_PATH
 PROJECT_PATH: $PROJECT_PATH
 STATUS: failed
 ERROR: unsupported_platform

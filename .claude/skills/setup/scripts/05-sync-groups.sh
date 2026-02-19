@@ -16,7 +16,7 @@ cd "$PROJECT_ROOT"
 # Build TypeScript
 log "Building TypeScript"
 BUILD="failed"
-if npm run build >> "$LOG_FILE" 2>&1; then
+if bun run build >> "$LOG_FILE" 2>&1; then
   BUILD="success"
   log "Build succeeded"
 else
@@ -38,7 +38,7 @@ fi
 log "Fetching group metadata directly"
 SYNC="failed"
 
-SYNC_OUTPUT=$(node -e "
+SYNC_OUTPUT=$(bun -e "
 import makeWASocket, { useMultiFileAuthState, makeCacheableSignalKeyStore, Browsers } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import path from 'path';
@@ -106,7 +106,7 @@ sock.ev.on('connection.update', async (update) => {
     process.exit(1);
   }
 });
-" --input-type=module 2>&1) || true
+" 2>&1) || true
 
 log "Sync output: $SYNC_OUTPUT"
 

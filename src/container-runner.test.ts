@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  jest,
+  mock,
+} from 'bun:test';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 
@@ -7,7 +15,7 @@ const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 // Mock config
-vi.mock('./config.js', () => ({
+mock.module('./config.js', () => ({
   CONTAINER_IMAGE: 'nanoclaw-agent:latest',
   CONTAINER_MAX_OUTPUT_SIZE: 10485760,
   CONTAINER_TIMEOUT: 1800000, // 30min
@@ -17,36 +25,31 @@ vi.mock('./config.js', () => ({
 }));
 
 // Mock logger
-vi.mock('./logger.js', () => ({
+mock.module('./logger.js', () => ({
   logger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
   },
 }));
 
 // Mock fs
-vi.mock('fs', async () => {
-  const actual = await vi.importActual<typeof import('fs')>('fs');
-  return {
-    ...actual,
-    default: {
-      ...actual,
-      existsSync: vi.fn(() => false),
-      mkdirSync: vi.fn(),
-      writeFileSync: vi.fn(),
-      readFileSync: vi.fn(() => ''),
-      readdirSync: vi.fn(() => []),
-      statSync: vi.fn(() => ({ isDirectory: () => false })),
-      copyFileSync: vi.fn(),
-    },
-  };
-});
+mock.module('fs', () => ({
+  default: {
+    existsSync: jest.fn(() => false),
+    mkdirSync: jest.fn(),
+    writeFileSync: jest.fn(),
+    readFileSync: jest.fn(() => ''),
+    readdirSync: jest.fn(() => []),
+    statSync: jest.fn(() => ({ isDirectory: () => false })),
+    copyFileSync: jest.fn(),
+  },
+}));
 
 // Mock mount-security
-vi.mock('./mount-security.js', () => ({
-  validateAdditionalMounts: vi.fn(() => []),
+mock.module('./mount-security.js', () => ({
+  validateAdditionalMounts: jest.fn(() => []),
 }));
 
 // Create a controllable fake ChildProcess
@@ -55,13 +58,13 @@ function createFakeProcess() {
     stdin: PassThrough;
     stdout: PassThrough;
     stderr: PassThrough;
-    kill: ReturnType<typeof vi.fn>;
+    kill: ReturnType<typeof jest.fn>;
     pid: number;
   };
   proc.stdin = new PassThrough();
   proc.stdout = new PassThrough();
   proc.stderr = new PassThrough();
-  proc.kill = vi.fn();
+  proc.kill = jest.fn();
   proc.pid = 12345;
   return proc;
 }
@@ -69,20 +72,15 @@ function createFakeProcess() {
 let fakeProc: ReturnType<typeof createFakeProcess>;
 
 // Mock child_process.spawn
-vi.mock('child_process', async () => {
-  const actual =
-    await vi.importActual<typeof import('child_process')>('child_process');
-  return {
-    ...actual,
-    spawn: vi.fn(() => fakeProc),
-    exec: vi.fn(
-      (_cmd: string, _opts: unknown, cb?: (err: Error | null) => void) => {
-        if (cb) cb(null);
-        return new EventEmitter();
-      },
-    ),
-  };
-});
+mock.module('child_process', () => ({
+  spawn: jest.fn(() => fakeProc),
+  exec: jest.fn(
+    (_cmd: string, _opts: unknown, cb?: (err: Error | null) => void) => {
+      if (cb) cb(null);
+      return new EventEmitter();
+    },
+  ),
+}));
 
 import { runContainerAgent, ContainerOutput } from './container-runner.js';
 import type { RegisteredGroup } from './types.js';
@@ -111,16 +109,16 @@ function emitOutputMarker(
 
 describe('container-runner timeout behavior', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     fakeProc = createFakeProcess();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    jest.useRealTimers();
   });
 
   it('timeout after output resolves as success', async () => {
-    const onOutput = vi.fn(async () => {});
+    const onOutput = jest.fn(async () => {});
     const resultPromise = runContainerAgent(
       testGroup,
       testInput,
@@ -136,16 +134,19 @@ describe('container-runner timeout behavior', () => {
     });
 
     // Let output processing settle
-    await vi.advanceTimersByTimeAsync(10);
+    jest.advanceTimersByTime(10);
+    await Promise.resolve();
 
     // Fire the hard timeout (IDLE_TIMEOUT + 30s = 1830000ms)
-    await vi.advanceTimersByTimeAsync(1830000);
+    jest.advanceTimersByTime(1830000);
+    await Promise.resolve();
 
     // Emit close event (as if container was stopped by the timeout)
     fakeProc.emit('close', 137);
 
     // Let the promise resolve
-    await vi.advanceTimersByTimeAsync(10);
+    jest.advanceTimersByTime(10);
+    await Promise.resolve();
 
     const result = await resultPromise;
     expect(result.status).toBe('success');
@@ -156,7 +157,7 @@ describe('container-runner timeout behavior', () => {
   });
 
   it('timeout with no output resolves as error', async () => {
-    const onOutput = vi.fn(async () => {});
+    const onOutput = jest.fn(async () => {});
     const resultPromise = runContainerAgent(
       testGroup,
       testInput,
@@ -165,12 +166,14 @@ describe('container-runner timeout behavior', () => {
     );
 
     // No output emitted — fire the hard timeout
-    await vi.advanceTimersByTimeAsync(1830000);
+    jest.advanceTimersByTime(1830000);
+    await Promise.resolve();
 
     // Emit close event
     fakeProc.emit('close', 137);
 
-    await vi.advanceTimersByTimeAsync(10);
+    jest.advanceTimersByTime(10);
+    await Promise.resolve();
 
     const result = await resultPromise;
     expect(result.status).toBe('error');
@@ -179,7 +182,7 @@ describe('container-runner timeout behavior', () => {
   });
 
   it('normal exit after output resolves as success', async () => {
-    const onOutput = vi.fn(async () => {});
+    const onOutput = jest.fn(async () => {});
     const resultPromise = runContainerAgent(
       testGroup,
       testInput,
@@ -194,12 +197,14 @@ describe('container-runner timeout behavior', () => {
       newSessionId: 'session-456',
     });
 
-    await vi.advanceTimersByTimeAsync(10);
+    jest.advanceTimersByTime(10);
+    await Promise.resolve();
 
     // Normal exit (no timeout)
     fakeProc.emit('close', 0);
 
-    await vi.advanceTimersByTimeAsync(10);
+    jest.advanceTimersByTime(10);
+    await Promise.resolve();
 
     const result = await resultPromise;
     expect(result.status).toBe('success');
