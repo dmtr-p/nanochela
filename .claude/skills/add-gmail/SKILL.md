@@ -203,7 +203,7 @@ const gmailDir = path.join(homeDir, '.gmail-mcp');
 if (fs.existsSync(gmailDir)) {
   mounts.push({
     hostPath: gmailDir,
-    containerPath: '/home/node/.gmail-mcp',
+    containerPath: '/home/bun/.gmail-mcp',
     readonly: false  // MCP may need to refresh tokens
   });
 }

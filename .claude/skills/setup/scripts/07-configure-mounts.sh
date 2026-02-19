@@ -44,7 +44,7 @@ else
   INPUT=$(cat)
 
   # Validate JSON
-  if ! echo "$INPUT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{JSON.parse(d)}catch(e){process.exit(1)}})" 2>/dev/null; then
+  if ! echo "$INPUT" | bun -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{JSON.parse(d)}catch(e){process.exit(1)}})" 2>/dev/null; then
     log "ERROR: Invalid JSON input"
     cat <<EOF
 === NANOCLAW SETUP: CONFIGURE_MOUNTS ===
@@ -63,8 +63,8 @@ EOF
   log "Wrote mount allowlist from stdin"
 
   # Extract values
-  ALLOWED_ROOTS=$(node -e "const d=require('$CONFIG_FILE');console.log((d.allowedRoots||[]).length)" 2>/dev/null || echo "0")
-  NON_MAIN_READ_ONLY=$(node -e "const d=require('$CONFIG_FILE');console.log(d.nonMainReadOnly===false?'false':'true')" 2>/dev/null || echo "true")
+  ALLOWED_ROOTS=$(bun -e "const d=require('$CONFIG_FILE');console.log((d.allowedRoots||[]).length)" 2>/dev/null || echo "0")
+  NON_MAIN_READ_ONLY=$(bun -e "const d=require('$CONFIG_FILE');console.log(d.nonMainReadOnly===false?'false':'true')" 2>/dev/null || echo "true")
 fi
 
 log "Allowlist configured: $ALLOWED_ROOTS roots, nonMainReadOnly=$NON_MAIN_READ_ONLY"

@@ -4,14 +4,14 @@ Personal Claude assistant. See [README.md](README.md) for philosophy and setup. 
 
 ## Quick Context
 
-Single Node.js process that connects to WhatsApp, routes messages to Claude Agent SDK running in Docker containers. Each group has isolated filesystem and memory.
+Single Bun process that connects to Telegram, routes messages to Claude Agent SDK running in Docker containers. Each group has isolated filesystem and memory.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `src/index.ts` | Orchestrator: state, message loop, agent invocation |
-| `src/channels/whatsapp.ts` | WhatsApp connection, auth, send/receive |
+| `src/channels/telegram.ts` | Telegram connection, send/receive |
 | `src/ipc.ts` | IPC watcher and task processing |
 | `src/router.ts` | Message formatting and outbound routing |
 | `src/config.ts` | Trigger pattern, paths, intervals |
@@ -34,8 +34,8 @@ Single Node.js process that connects to WhatsApp, routes messages to Claude Agen
 Run commands directly—don't tell the user to run them.
 
 ```bash
-npm run dev          # Run with hot reload
-npm run build        # Compile TypeScript
+bun run dev          # Run with hot reload
+bun run build        # Compile TypeScript
 ./container/build.sh # Rebuild agent container
 ```
 

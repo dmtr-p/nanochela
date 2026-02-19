@@ -1,6 +1,6 @@
 # NanoClaw Specification
 
-A personal Claude assistant accessible via WhatsApp, with persistent memory per conversation, scheduled tasks, and email integration.
+A personal Claude assistant accessible via Telegram, with persistent memory per conversation, scheduled tasks, and email integration.
 
 ---
 
@@ -25,12 +25,12 @@ A personal Claude assistant accessible via WhatsApp, with persistent memory per 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        HOST (macOS)                                  │
-│                   (Main Node.js Process)                             │
+│                   (Main Bun Process)                                 │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  ┌──────────────┐                     ┌────────────────────┐        │
-│  │  WhatsApp    │────────────────────▶│   SQLite Database  │        │
-│  │  (baileys)   │◀────────────────────│   (messages.db)    │        │
+│  │  Telegram    │────────────────────▶│   SQLite Database  │        │
+│  │  (grammy)    │◀────────────────────│   (messages.db)    │        │
 │  └──────────────┘   store/send        └─────────┬──────────┘        │
 │                                                  │                   │
 │         ┌────────────────────────────────────────┘                   │
@@ -54,7 +54,7 @@ A personal Claude assistant accessible via WhatsApp, with persistent memory per 
 │  │  Volume mounts:                                                │   │
 │  │    • groups/{name}/ → /workspace/group                         │   │
 │  │    • groups/global/ → /workspace/global/ (non-main only)        │   │
-│  │    • data/sessions/{group}/.claude/ → /home/node/.claude/      │   │
+│  │    • data/sessions/{group}/.claude/ → /home/bun/.claude/      │   │
 │  │    • Additional dirs → /workspace/extra/*                      │   │
 │  │                                                                │   │
 │  │  Tools (all groups):                                           │   │
@@ -73,12 +73,12 @@ A personal Claude assistant accessible via WhatsApp, with persistent memory per 
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| WhatsApp Connection | Node.js (@whiskeysockets/baileys) | Connect to WhatsApp, send/receive messages |
-| Message Storage | SQLite (better-sqlite3) | Store messages for polling |
+| Telegram Connection | grammy | Connect to Telegram, send/receive messages |
+| Message Storage | SQLite (bun:sqlite) | Store messages for polling |
 | Container Runtime | Docker | Isolated Linux containers for agent execution |
 | Agent | @anthropic-ai/claude-agent-sdk (0.2.29) | Run Claude with tools and MCP servers |
 | Browser Automation | agent-browser + Chromium | Web interaction and screenshots |
-| Runtime | Node.js 20+ | Host process for routing and scheduling |
+| Runtime | Bun | Host process for routing and scheduling |
 
 ---
 
@@ -92,7 +92,7 @@ nanoclaw/
 │   ├── REQUIREMENTS.md            # Architecture decisions
 │   └── SECURITY.md                # Security model
 ├── README.md                      # User documentation
-├── package.json                   # Node.js dependencies
+├── package.json                   # Dependencies
 ├── tsconfig.json                  # TypeScript configuration
 ├── .mcp.json                      # MCP server configuration (reference)
 ├── .gitignore
@@ -100,7 +100,7 @@ nanoclaw/
 ├── src/
 │   ├── index.ts                   # Orchestrator: state, message loop, agent invocation
 │   ├── channels/
-│   │   └── whatsapp.ts            # WhatsApp connection, auth, send/receive
+│   │   └── telegram.ts            # Telegram connection, send/receive
 │   ├── ipc.ts                     # IPC watcher and task processing
 │   ├── router.ts                  # Message formatting and outbound routing
 │   ├── config.ts                  # Configuration constants
@@ -109,12 +109,11 @@ nanoclaw/
 │   ├── db.ts                      # SQLite database initialization and queries
 │   ├── group-queue.ts             # Per-group queue with global concurrency limit
 │   ├── mount-security.ts          # Mount allowlist validation for containers
-│   ├── whatsapp-auth.ts           # Standalone WhatsApp authentication
 │   ├── task-scheduler.ts          # Runs scheduled tasks when due
 │   └── container-runner.ts        # Spawns agents in Docker containers
 │
 ├── container/
-│   ├── Dockerfile                 # Container image (runs as 'node' user, includes Claude Code CLI)
+│   ├── Dockerfile                 # Container image (runs as 'bun' user, includes Claude Code CLI)
 │   ├── build.sh                   # Build script for container image
 │   ├── agent-runner/              # Code that runs inside the container
 │   │   ├── package.json
@@ -132,11 +131,9 @@ nanoclaw/
 │       ├── setup/SKILL.md              # /setup - First-time installation
 │       ├── customize/SKILL.md          # /customize - Add capabilities
 │       ├── debug/SKILL.md              # /debug - Container debugging
-│       ├── add-telegram/SKILL.md       # /add-telegram - Telegram channel
 │       ├── add-gmail/SKILL.md          # /add-gmail - Gmail integration
 │       ├── add-voice-transcription/    # /add-voice-transcription - Whisper
 │       ├── x-integration/SKILL.md      # /x-integration - X/Twitter
-│       ├── convert-to-docker/SKILL.md  # /convert-to-docker - Docker runtime
 │       └── add-parallel/SKILL.md       # /add-parallel - Parallel agents
 │
 ├── groups/
@@ -150,7 +147,6 @@ nanoclaw/
 │       └── *.md                   # Files created by the agent
 │
 ├── store/                         # Local data (gitignored)
-│   ├── auth/                      # WhatsApp authentication state
 │   └── messages.db                # SQLite database (messages, chats, scheduled_tasks, task_run_logs, registered_groups, sessions, router_state)
 │
 ├── data/                          # Application state (gitignored)
@@ -247,7 +243,7 @@ Only the authentication variables (`CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_
 Set the `ASSISTANT_NAME` environment variable:
 
 ```bash
-ASSISTANT_NAME=Bot npm start
+ASSISTANT_NAME=Bot bun start
 ```
 
 Or edit the default in `src/config.ts`. This changes:
@@ -258,7 +254,7 @@ Or edit the default in `src/config.ts`. This changes:
 
 Files with `{{PLACEHOLDER}}` values need to be configured:
 - `{{PROJECT_ROOT}}` - Absolute path to your nanoclaw installation
-- `{{NODE_PATH}}` - Path to node binary (detected via `which node`)
+- `{{BUN_PATH}}` - Path to bun binary (detected via `which bun`)
 - `{{HOME}}` - User's home directory
 
 ---
@@ -314,10 +310,10 @@ Sessions enable conversation continuity - Claude remembers what you talked about
 ### Incoming Message Flow
 
 ```
-1. User sends WhatsApp message
+1. User sends Telegram message
    │
    ▼
-2. Baileys receives message via WhatsApp Web protocol
+2. grammy receives message via Telegram Bot API
    │
    ▼
 3. Message stored in SQLite (store/messages.db)
@@ -349,7 +345,7 @@ Sessions enable conversation continuity - Claude remembers what you talked about
    └── Uses tools as needed (search, email, etc.)
    │
    ▼
-9. Router prefixes response with assistant name and sends via WhatsApp
+9. Router prefixes response with assistant name and sends via Telegram
    │
    ▼
 10. Router updates last agent timestamp and saves session ID
@@ -473,7 +469,7 @@ The `nanoclaw` MCP server is created dynamically per agent call with the current
 | `pause_task` | Pause a task |
 | `resume_task` | Resume a paused task |
 | `cancel_task` | Delete a task |
-| `send_message` | Send a WhatsApp message to the group |
+| `send_message` | Send a Telegram message to the group |
 
 ---
 
@@ -487,7 +483,7 @@ When NanoClaw starts, it:
 1. **Ensures Docker is running** - Checks Docker daemon; kills orphaned NanoClaw containers from previous runs
 2. Initializes the SQLite database (migrates from JSON files if they exist)
 3. Loads state from SQLite (registered groups, sessions, router state)
-4. Connects to WhatsApp (on `connection.open`):
+4. Connects to Telegram (starts polling):
    - Starts the scheduler loop
    - Starts the IPC watcher for container messages
    - Sets up the per-group queue with `processGroupMessages`
@@ -506,8 +502,8 @@ When NanoClaw starts, it:
     <string>com.nanoclaw</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{{NODE_PATH}}</string>
-        <string>{{PROJECT_ROOT}}/dist/index.js</string>
+        <string>{{BUN_PATH}}</string>
+        <string>{{PROJECT_ROOT}}/src/index.ts</string>
     </array>
     <key>WorkingDirectory</key>
     <string>{{PROJECT_ROOT}}</string>
@@ -562,11 +558,11 @@ All agents run inside Docker containers, providing:
 - **Safe Bash access**: Commands run inside the container, not on your host
 - **Network isolation**: Can be configured per-container if needed
 - **Process isolation**: Container processes can't affect the host
-- **Non-root user**: Container runs as unprivileged `node` user (uid 1000)
+- **Non-root user**: Container runs as unprivileged `bun` user (uid 1000)
 
 ### Prompt Injection Risk
 
-WhatsApp messages could contain malicious instructions attempting to manipulate Claude's behavior.
+Telegram messages could contain malicious instructions attempting to manipulate Claude's behavior.
 
 **Mitigations:**
 - Container isolation limits blast radius
@@ -586,8 +582,8 @@ WhatsApp messages could contain malicious instructions attempting to manipulate 
 
 | Credential | Storage Location | Notes |
 |------------|------------------|-------|
-| Claude CLI Auth | data/sessions/{group}/.claude/ | Per-group isolation, mounted to /home/node/.claude/ |
-| WhatsApp Session | store/auth/ | Auto-created, persists ~20 days |
+| Claude CLI Auth | data/sessions/{group}/.claude/ | Per-group isolation, mounted to /home/bun/.claude/ |
+| Telegram Bot Token | .env | Set via TELEGRAM_BOT_TOKEN |
 
 ### File Permissions
 
@@ -606,10 +602,10 @@ chmod 700 groups/
 |-------|-------|----------|
 | No response to messages | Service not running | Check `launchctl list | grep nanoclaw` |
 | "Claude Code process exited with code 1" | Docker not running | Check logs; ensure Docker daemon is running |
-| "Claude Code process exited with code 1" | Session mount path wrong | Ensure mount is to `/home/node/.claude/` not `/root/.claude/` |
+| "Claude Code process exited with code 1" | Session mount path wrong | Ensure mount is to `/home/bun/.claude/` not `/root/.claude/` |
 | Session not continuing | Session ID not saved | Check SQLite: `sqlite3 store/messages.db "SELECT * FROM sessions"` |
-| Session not continuing | Mount path mismatch | Container user is `node` with HOME=/home/node; sessions must be at `/home/node/.claude/` |
-| "QR code expired" | WhatsApp session expired | Delete store/auth/ and restart |
+| Session not continuing | Mount path mismatch | Container user is `bun` with HOME=/home/bun; sessions must be at `/home/bun/.claude/` |
+| "Telegram bot not responding" | Invalid bot token | Verify TELEGRAM_BOT_TOKEN in .env |
 | "No groups registered" | Haven't added groups | Use `@Andy add group "Name"` in main |
 
 ### Log Location
@@ -621,7 +617,7 @@ chmod 700 groups/
 
 Run manually for verbose output:
 ```bash
-npm run dev
+bun run dev
 # or
-node dist/index.js
+bun src/index.ts
 ```

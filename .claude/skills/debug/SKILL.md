@@ -20,17 +20,17 @@ src/container-runner.ts               container/agent-runner/
     ├── data/env/env ──────────────> /workspace/env-dir/env
     ├── groups/{folder} ───────────> /workspace/group
     ├── data/ipc/{folder} ────────> /workspace/ipc
-    ├── data/sessions/{folder}/.claude/ ──> /home/node/.claude/ (isolated per-group)
+    ├── data/sessions/{folder}/.claude/ ──> /home/bun/.claude/ (isolated per-group)
     └── (main only) project root ──> /workspace/project
 ```
 
-**Important:** The container runs as user `node` with `HOME=/home/node`. Session files must be mounted to `/home/node/.claude/` (not `/root/.claude/`) for session resumption to work.
+**Important:** The container runs as user `bun` with `HOME=/home/bun`. Session files must be mounted to `/home/bun/.claude/` (not `/root/.claude/`) for session resumption to work.
 
 ## Log Locations
 
 | Log | Location | Content |
 |-----|----------|---------|
-| **Main app logs** | `logs/nanoclaw.log` | Host-side WhatsApp, routing, container spawning |
+| **Main app logs** | `logs/nanoclaw.log` | Host-side Telegram, routing, container spawning |
 | **Main app errors** | `logs/nanoclaw.error.log` | Host-side errors |
 | **Container run logs** | `groups/{folder}/logs/container-*.log` | Per-run: input, mounts, stderr, stdout |
 | **Claude sessions** | `~/.claude/projects/` | Claude Code session history |
@@ -41,7 +41,7 @@ Set `LOG_LEVEL=debug` for verbose output:
 
 ```bash
 # For development
-LOG_LEVEL=debug npm run dev
+LOG_LEVEL=debug bun run dev
 
 # For launchd service, add to plist EnvironmentVariables:
 <key>LOG_LEVEL</key>
@@ -76,7 +76,7 @@ cat .env  # Should show one of:
 ```
 --dangerously-skip-permissions cannot be used with root/sudo privileges
 ```
-**Fix:** Container must run as non-root user. Check Dockerfile has `USER node`.
+**Fix:** Container must run as non-root user. Check Dockerfile has `USER bun`.
 
 ### 2. Environment Variables Not Passing
 
@@ -115,7 +115,7 @@ Expected structure:
 
 ### 4. Permission Issues
 
-The container runs as user `node` (uid 1000). Check ownership:
+The container runs as user `bun` (uid 1000). Check ownership:
 ```bash
 docker run --rm --entrypoint /bin/bash nanoclaw-agent:latest -c '
   whoami
@@ -124,35 +124,35 @@ docker run --rm --entrypoint /bin/bash nanoclaw-agent:latest -c '
 '
 ```
 
-All of `/workspace/` and `/app/` should be owned by `node`.
+All of `/workspace/` and `/app/` should be owned by `bun`.
 
 ### 5. Session Not Resuming / "Claude Code process exited with code 1"
 
 If sessions aren't being resumed (new session ID every time), or Claude Code exits with code 1 when resuming:
 
-**Root cause:** The SDK looks for sessions at `$HOME/.claude/projects/`. Inside the container, `HOME=/home/node`, so it looks at `/home/node/.claude/projects/`.
+**Root cause:** The SDK looks for sessions at `$HOME/.claude/projects/`. Inside the container, `HOME=/home/bun`, so it looks at `/home/bun/.claude/projects/`.
 
 **Check the mount path:**
 ```bash
-# In container-runner.ts, verify mount is to /home/node/.claude/, NOT /root/.claude/
+# In container-runner.ts, verify mount is to /home/bun/.claude/, NOT /root/.claude/
 grep -A3 "Claude sessions" src/container-runner.ts
 ```
 
 **Verify sessions are accessible:**
 ```bash
 docker run --rm --entrypoint /bin/bash \
-  -v ~/.claude:/home/node/.claude \
+  -v ~/.claude:/home/bun/.claude \
   nanoclaw-agent:latest -c '
 echo "HOME=$HOME"
 ls -la $HOME/.claude/projects/ 2>&1 | head -5
 '
 ```
 
-**Fix:** Ensure `container-runner.ts` mounts to `/home/node/.claude/`:
+**Fix:** Ensure `container-runner.ts` mounts to `/home/bun/.claude/`:
 ```typescript
 mounts.push({
   hostPath: claudeDir,
-  containerPath: '/home/node/.claude',  // NOT /root/.claude
+  containerPath: '/home/bun/.claude',  // NOT /root/.claude
   readonly: false
 });
 ```
@@ -216,7 +216,7 @@ query({
 
 ```bash
 # Rebuild main app
-npm run build
+bun run build
 
 # Rebuild container (use --no-cache for clean rebuild)
 ./container/build.sh
@@ -234,8 +234,8 @@ docker images
 
 # Check what's in the image
 docker run --rm --entrypoint /bin/bash nanoclaw-agent:latest -c '
-  echo "=== Node version ==="
-  node --version
+  echo "=== Bun version ==="
+  bun --version
 
   echo "=== Claude Code version ==="
   claude --version
@@ -250,9 +250,9 @@ docker run --rm --entrypoint /bin/bash nanoclaw-agent:latest -c '
 Claude sessions are stored per-group in `data/sessions/{group}/.claude/` for security isolation. Each group has its own session directory, preventing cross-group access to conversation history.
 
 **Critical:** The mount path must match the container user's HOME directory:
-- Container user: `node`
-- Container HOME: `/home/node`
-- Mount target: `/home/node/.claude/` (NOT `/root/.claude/`)
+- Container user: `bun`
+- Container HOME: `/home/bun`
+- Mount target: `/home/bun/.claude/` (NOT `/root/.claude/`)
 
 To clear sessions:
 
@@ -295,10 +295,10 @@ cat data/ipc/{groupFolder}/current_tasks.json
 ```
 
 **IPC file types:**
-- `messages/*.json` - Agent writes: outgoing WhatsApp messages
+- `messages/*.json` - Agent writes: outgoing Telegram messages
 - `tasks/*.json` - Agent writes: task operations (schedule, pause, resume, cancel, refresh_groups)
 - `current_tasks.json` - Host writes: read-only snapshot of scheduled tasks
-- `available_groups.json` - Host writes: read-only list of WhatsApp groups (main only)
+- `available_groups.json` - Host writes: read-only list of Telegram groups (main only)
 
 ## Quick Diagnostic Script
 
@@ -320,7 +320,7 @@ echo -e "\n4. Container image exists?"
 docker images nanoclaw-agent:latest --format "OK" 2>/dev/null | grep -q OK || echo "MISSING - run ./container/build.sh"
 
 echo -e "\n5. Session mount path correct?"
-grep -q "/home/node/.claude" src/container-runner.ts 2>/dev/null && echo "OK" || echo "WRONG - should mount to /home/node/.claude/, not /root/.claude/"
+grep -q "/home/bun/.claude" src/container-runner.ts 2>/dev/null && echo "OK" || echo "WRONG - should mount to /home/bun/.claude/, not /root/.claude/"
 
 echo -e "\n6. Groups directory?"
 ls -la groups/ 2>/dev/null || echo "MISSING - run setup"

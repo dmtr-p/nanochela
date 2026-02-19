@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# 01-check-environment.sh — Detect OS, Node, container runtimes, existing config
+# 01-check-environment.sh — Detect OS, Bun, container runtimes, existing config
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
@@ -22,18 +22,18 @@ case "$UNAME" in
 esac
 log "Platform: $PLATFORM ($UNAME)"
 
-# Check Node
-NODE_OK="false"
-NODE_VERSION="not_found"
-if command -v node >/dev/null 2>&1; then
-  NODE_VERSION=$(node --version 2>/dev/null | sed 's/^v//')
-  MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
-  if [ "$MAJOR" -ge 20 ] 2>/dev/null; then
-    NODE_OK="true"
+# Check Bun
+BUN_OK="false"
+BUN_VERSION="not_found"
+if command -v bun >/dev/null 2>&1; then
+  BUN_VERSION=$(bun --version 2>/dev/null)
+  MAJOR=$(echo "$BUN_VERSION" | cut -d. -f1)
+  if [ "$MAJOR" -ge 1 ] 2>/dev/null; then
+    BUN_OK="true"
   fi
-  log "Node $NODE_VERSION found (major=$MAJOR, ok=$NODE_OK)"
+  log "Bun $BUN_VERSION found (major=$MAJOR, ok=$BUN_OK)"
 else
-  log "Node not found"
+  log "Bun not found"
 fi
 
 # Check Apple Container
@@ -90,8 +90,8 @@ log "Environment check complete"
 cat <<EOF
 === NANOCLAW SETUP: CHECK_ENVIRONMENT ===
 PLATFORM: $PLATFORM
-NODE_VERSION: $NODE_VERSION
-NODE_OK: $NODE_OK
+BUN_VERSION: $BUN_VERSION
+BUN_OK: $BUN_OK
 APPLE_CONTAINER: $APPLE_CONTAINER
 DOCKER: $DOCKER
 HAS_ENV: $HAS_ENV
@@ -102,7 +102,7 @@ LOG: logs/setup.log
 === END ===
 EOF
 
-# Exit 2 if Node is missing or too old
-if [ "$NODE_OK" = "false" ]; then
+# Exit 2 if Bun is missing or too old
+if [ "$BUN_OK" = "false" ]; then
   exit 2
 fi
