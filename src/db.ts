@@ -12,6 +12,16 @@ import {
 
 let db: Database;
 
+/**
+ * Ensures the database has the required tables, indexes, and schema migrations for the application.
+ *
+ * Creates core tables (chats, messages, scheduled_tasks, task_run_logs, router_state, sessions, registered_groups)
+ * and related indexes. Applies migrations to add missing columns: `context_mode` on scheduled_tasks, `is_bot_message`
+ * on messages (and backfills existing rows whose content begins with the configured assistant prefix), and
+ * `reply_context` on messages for storing reply-to context as JSON.
+ *
+ * @param database - The open SQLite Database instance to initialize or migrate
+ */
 function createSchema(database: Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS chats (
@@ -110,6 +120,9 @@ function createSchema(database: Database): void {
   }
 }
 
+/**
+ * Initializes the module-level SQLite database at STORE_DIR/messages.db, applies the schema, and migrates any legacy JSON state into the database.
+ */
 export function initDatabase(): void {
   const dbPath = path.join(STORE_DIR, 'messages.db');
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -215,8 +228,9 @@ export function setLastGroupSync(): void {
 }
 
 /**
- * Store a message with full content.
- * Only call this for registered groups where message history is needed.
+ * Persists a message record for a chat into the database.
+ *
+ * @param msg - Message data to store; if `msg.reply_context` is present it will be stored as JSON
  */
 export function storeMessage(msg: NewMessage): void {
   db.prepare(
@@ -235,7 +249,18 @@ export function storeMessage(msg: NewMessage): void {
 }
 
 /**
- * Store a message directly (for non-WhatsApp channels that don't use Baileys proto).
+ * Store a single message record into the messages table for non-WhatsApp channels.
+ *
+ * @param msg - Message payload to persist.
+ * @param msg.id - Unique message identifier.
+ * @param msg.chat_jid - Chat or conversation identifier.
+ * @param msg.sender - Sender identifier.
+ * @param msg.sender_name - Display name of the sender.
+ * @param msg.content - Message text content.
+ * @param msg.timestamp - ISO timestamp of the message.
+ * @param msg.is_from_me - `true` if the message originated from this client.
+ * @param msg.is_bot_message - Optional; `true` if the message should be considered sent by the bot.
+ * @param msg.reply_context - Optional reply context object; if provided it will be stored as JSON to associate this message with earlier message context.
  */
 export function storeMessageDirect(msg: {
   id: string;
@@ -263,6 +288,16 @@ export function storeMessageDirect(msg: {
   );
 }
 
+/**
+ * Fetches new non-bot messages for the given chat JIDs that occurred after a timestamp.
+ *
+ * Filters out messages identified as bot messages (by stored flag and by content prefix).
+ *
+ * @param jids - Array of chat JIDs to query
+ * @param lastTimestamp - ISO timestamp; only messages with timestamp greater than this are returned
+ * @param botPrefix - Content prefix used to identify bot-generated messages (e.g., "Assistant")
+ * @returns An object with `messages` (the matching messages with parsed `reply_context`) and `newTimestamp` (the greatest timestamp among the returned messages or the input `lastTimestamp` if none)
+ */
 export function getNewMessages(
   jids: string[],
   lastTimestamp: string,
@@ -302,6 +337,14 @@ export function getNewMessages(
   return { messages, newTimestamp };
 }
 
+/**
+ * Retrieve non-bot messages for a chat with timestamps strictly greater than the given cutoff.
+ *
+ * @param chatJid - The chat JID to query
+ * @param sinceTimestamp - ISO timestamp cutoff; only messages with a later timestamp are returned
+ * @param botPrefix - Prefix used to identify bot-generated messages in content (used as a fallback)
+ * @returns An array of messages with `reply_context` parsed to an object when present, or `undefined` otherwise
+ */
 export function getMessagesSince(
   chatJid: string,
   sinceTimestamp: string,
@@ -329,6 +372,21 @@ export function getMessagesSince(
   }));
 }
 
+/**
+ * Insert a new scheduled task record into the database.
+ *
+ * @param task - Task fields to persist. Expected properties include:
+ *   - `id`: unique task identifier
+ *   - `group_folder`: folder/name of the group this task belongs to
+ *   - `chat_jid`: chat JID associated with the task (may be null)
+ *   - `prompt`: task prompt text
+ *   - `schedule_type`: scheduling strategy (e.g., cron, interval)
+ *   - `schedule_value`: value for the schedule (cron expression or interval)
+ *   - `context_mode`: optional execution context mode; defaults to `'isolated'` when omitted
+ *   - `next_run`: next scheduled run timestamp or `null`
+ *   - `status`: task status (e.g., `'active'`, `'paused'`)
+ *   - `created_at`: ISO timestamp when the task was created
+ */
 export function createTask(
   task: Omit<ScheduledTask, 'last_run' | 'last_result'>,
 ): void {
