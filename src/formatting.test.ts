@@ -102,6 +102,51 @@ describe('formatMessages', () => {
     const result = formatMessages([]);
     expect(result).toBe('<messages>\n\n</messages>');
   });
+
+  it('includes reply context as <reply> element', () => {
+    const result = formatMessages([
+      makeMsg({
+        content: 'yes please do that',
+        reply_context: { sender_name: 'Bob', text: 'Can you check the logs?' },
+      }),
+    ]);
+    expect(result).toContain(
+      '<reply to="Bob">Can you check the logs?</reply>yes please do that',
+    );
+  });
+
+  it('renders non-text reply as [non-text message]', () => {
+    const result = formatMessages([
+      makeMsg({
+        content: 'nice photo!',
+        reply_context: { sender_name: 'Carol', text: null },
+      }),
+    ]);
+    expect(result).toContain(
+      '<reply to="Carol">[non-text message]</reply>nice photo!',
+    );
+  });
+
+  it('escapes special characters in reply context', () => {
+    const result = formatMessages([
+      makeMsg({
+        content: 'ok',
+        reply_context: {
+          sender_name: 'A & B',
+          text: '<script>alert("xss")</script>',
+        },
+      }),
+    ]);
+    expect(result).toContain('to="A &amp; B"');
+    expect(result).toContain(
+      '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;',
+    );
+  });
+
+  it('omits reply element when no reply_context', () => {
+    const result = formatMessages([makeMsg()]);
+    expect(result).not.toContain('<reply');
+  });
 });
 
 // --- TRIGGER_PATTERN ---
