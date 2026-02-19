@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# 05-sync-groups.sh — Connect to WhatsApp, fetch group metadata, write to DB, exit.
+# 05-sync-groups.sh — Use Telegram Bot API getUpdates to discover groups, write to DB, exit.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
@@ -13,99 +13,79 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sync-groups] $*" >> "$LOG_FILE"; }
 
 cd "$PROJECT_ROOT"
 
-# Build TypeScript
-log "Building TypeScript"
-BUILD="failed"
-if bun run build >> "$LOG_FILE" 2>&1; then
-  BUILD="success"
-  log "Build succeeded"
-else
-  log "Build failed"
+# Load bot token from .env
+if [ -f "$PROJECT_ROOT/.env" ]; then
+  TELEGRAM_BOT_TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' "$PROJECT_ROOT/.env" | cut -d= -f2- | tr -d '"' | tr -d "'")
+fi
+
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+  log "No TELEGRAM_BOT_TOKEN found in .env"
   cat <<EOF
 === NANOCLAW SETUP: SYNC_GROUPS ===
-BUILD: failed
-SYNC: skipped
+SYNC: failed
 GROUPS_IN_DB: 0
 STATUS: failed
-ERROR: build_failed
+ERROR: no_bot_token
 LOG: logs/setup.log
 === END ===
 EOF
   exit 1
 fi
 
-# Directly connect, fetch groups, write to DB, exit
-log "Fetching group metadata directly"
+# Use Telegram getUpdates API to discover chats the bot has seen
+log "Fetching chat metadata from Telegram getUpdates"
 SYNC="failed"
 
 SYNC_OUTPUT=$(bun -e "
-import makeWASocket, { useMultiFileAuthState, makeCacheableSignalKeyStore, Browsers } from '@whiskeysockets/baileys';
-import pino from 'pino';
+import { Database } from 'bun:sqlite';
 import path from 'path';
 import fs from 'fs';
-import Database from 'better-sqlite3';
 
-const logger = pino({ level: 'silent' });
-const authDir = path.join('store', 'auth');
+const token = process.env.TELEGRAM_BOT_TOKEN;
 const dbPath = path.join('store', 'messages.db');
 
-if (!fs.existsSync(authDir)) {
-  console.error('NO_AUTH');
-  process.exit(1);
+if (!fs.existsSync(path.dirname(dbPath))) {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 }
 
 const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
+db.exec('PRAGMA journal_mode = WAL');
 db.exec('CREATE TABLE IF NOT EXISTS chats (jid TEXT PRIMARY KEY, name TEXT, last_message_time TEXT)');
 
 const upsert = db.prepare(
   'INSERT INTO chats (jid, name, last_message_time) VALUES (?, ?, ?) ON CONFLICT(jid) DO UPDATE SET name = excluded.name'
 );
 
-const { state, saveCreds } = await useMultiFileAuthState(authDir);
+try {
+  const res = await fetch('https://api.telegram.org/bot' + token + '/getUpdates?limit=100&allowed_updates=[\"message\"]');
+  const data = await res.json();
 
-const sock = makeWASocket({
-  auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
-  printQRInTerminal: false,
-  logger,
-  browser: Browsers.macOS('Chrome'),
-});
-
-// Timeout after 30s
-const timeout = setTimeout(() => {
-  console.error('TIMEOUT');
-  process.exit(1);
-}, 30000);
-
-sock.ev.on('creds.update', saveCreds);
-
-sock.ev.on('connection.update', async (update) => {
-  if (update.connection === 'open') {
-    try {
-      const groups = await sock.groupFetchAllParticipating();
-      const now = new Date().toISOString();
-      let count = 0;
-      for (const [jid, metadata] of Object.entries(groups)) {
-        if (metadata.subject) {
-          upsert.run(jid, metadata.subject, now);
-          count++;
-        }
-      }
-      console.log('SYNCED:' + count);
-    } catch (err) {
-      console.error('FETCH_ERROR:' + err.message);
-    } finally {
-      clearTimeout(timeout);
-      sock.end(undefined);
-      db.close();
-      process.exit(0);
-    }
-  } else if (update.connection === 'close') {
-    clearTimeout(timeout);
-    console.error('CONNECTION_CLOSED');
+  if (!data.ok) {
+    console.error('API_ERROR:' + JSON.stringify(data.description));
     process.exit(1);
   }
-});
+
+  const seen = new Map();
+  for (const update of data.result || []) {
+    const chat = update.message?.chat;
+    if (!chat) continue;
+    const jid = 'tg:' + chat.id;
+    const name = chat.title || chat.first_name || chat.username || String(chat.id);
+    seen.set(jid, name);
+  }
+
+  const now = new Date().toISOString();
+  for (const [jid, name] of seen) {
+    upsert.run(jid, name, now);
+  }
+
+  console.log('SYNCED:' + seen.size);
+} catch (err) {
+  console.error('FETCH_ERROR:' + err.message);
+  process.exit(1);
+} finally {
+  db.close();
+}
 " 2>&1) || true
 
 log "Sync output: $SYNC_OUTPUT"
@@ -114,11 +94,11 @@ if echo "$SYNC_OUTPUT" | grep -q "SYNCED:"; then
   SYNC="success"
 fi
 
-# Check for groups in DB
+# Check for chats in DB
 GROUPS_IN_DB=0
 if [ -f "$PROJECT_ROOT/store/messages.db" ]; then
-  GROUPS_IN_DB=$(sqlite3 "$PROJECT_ROOT/store/messages.db" "SELECT COUNT(*) FROM chats WHERE jid LIKE '%@g.us' AND jid <> '__group_sync__'" 2>/dev/null || echo "0")
-  log "Groups found in DB: $GROUPS_IN_DB"
+  GROUPS_IN_DB=$(sqlite3 "$PROJECT_ROOT/store/messages.db" "SELECT COUNT(*) FROM chats WHERE jid LIKE 'tg:%'" 2>/dev/null || echo "0")
+  log "Chats found in DB: $GROUPS_IN_DB"
 fi
 
 STATUS="success"
@@ -128,7 +108,6 @@ fi
 
 cat <<EOF
 === NANOCLAW SETUP: SYNC_GROUPS ===
-BUILD: $BUILD
 SYNC: $SYNC
 GROUPS_IN_DB: $GROUPS_IN_DB
 STATUS: $STATUS
