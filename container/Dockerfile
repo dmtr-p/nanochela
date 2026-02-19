@@ -53,7 +53,7 @@ RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/
 # Create entrypoint script
 # Secrets are passed via stdin JSON — temp file is deleted immediately after Bun reads it
 # Follow-up messages arrive via IPC files in /workspace/ipc/input/
-RUN printf '#!/bin/bash\nset -e\ncat > /tmp/input.json\nbun /app/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN printf '#!/bin/bash\nset -e\ntrap "rm -f /tmp/input.json" EXIT\ncat > /tmp/input.json\nbun /app/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to bun user (non-root) for writable directories
 RUN chown -R bun:bun /workspace
