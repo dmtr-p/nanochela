@@ -7,7 +7,7 @@
 | Main group | Trusted | Private self-chat, admin control |
 | Non-main groups | Untrusted | Other users may be malicious |
 | Container agents | Sandboxed | Isolated execution environment |
-| WhatsApp messages | User input | Potential prompt injection |
+| Telegram messages | User input | Potential prompt injection |
 
 ## Security Boundaries
 
@@ -16,7 +16,7 @@
 Agents execute in Apple Container (lightweight Linux VMs), providing:
 - **Process isolation** - Container processes cannot affect the host
 - **Filesystem isolation** - Only explicitly mounted directories are visible
-- **Non-root execution** - Runs as unprivileged `node` user (uid 1000)
+- **Non-root execution** - Runs as unprivileged `bun` user (uid 1000)
 - **Ephemeral containers** - Fresh environment per invocation (`--rm`)
 
 This is the primary security boundary. Rather than relying on application-level permission checks, the attack surface is limited by what's mounted.
@@ -66,7 +66,7 @@ Messages and task operations are verified against group identity:
 - Claude auth tokens (filtered from `.env`, read-only)
 
 **NOT Mounted:**
-- WhatsApp session (`store/auth/`) - host only
+- Telegram bot token (`.env`) - host only
 - Mount allowlist - external, never mounted
 - Any credentials matching blocked patterns
 
@@ -94,7 +94,7 @@ const allowedVars = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'];
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                        UNTRUSTED ZONE                             │
-│  WhatsApp Messages (potentially malicious)                        │
+│  Telegram Messages (potentially malicious)                        │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │
                                  ▼ Trigger check, input escaping
