@@ -7,6 +7,7 @@ import {
   OnInboundMessage,
   OnChatMetadata,
   RegisteredGroup,
+  ReplyContext,
 } from '../types.js';
 
 export interface TelegramChannelOpts {
@@ -96,6 +97,16 @@ export class TelegramChannel implements Channel {
         return;
       }
 
+      const replyTo = ctx.message.reply_to_message;
+      let reply_context: ReplyContext | undefined;
+      if (replyTo) {
+        reply_context = {
+          sender_name:
+            replyTo.from?.first_name || replyTo.from?.username || 'Unknown',
+          text: replyTo.text ?? replyTo.caption ?? null,
+        };
+      }
+
       this.opts.onMessage(chatJid, {
         id: msgId,
         chat_jid: chatJid,
@@ -104,6 +115,7 @@ export class TelegramChannel implements Channel {
         content,
         timestamp,
         is_from_me: false,
+        reply_context,
       });
 
       logger.info(
@@ -126,6 +138,16 @@ export class TelegramChannel implements Channel {
         'Unknown';
       const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
 
+      const replyTo = ctx.message.reply_to_message;
+      let reply_context: ReplyContext | undefined;
+      if (replyTo) {
+        reply_context = {
+          sender_name:
+            replyTo.from?.first_name || replyTo.from?.username || 'Unknown',
+          text: replyTo.text ?? replyTo.caption ?? null,
+        };
+      }
+
       this.opts.onChatMetadata(chatJid, timestamp);
       this.opts.onMessage(chatJid, {
         id: ctx.message.message_id.toString(),
@@ -135,6 +157,7 @@ export class TelegramChannel implements Channel {
         content: `${placeholder}${caption}`,
         timestamp,
         is_from_me: false,
+        reply_context,
       });
     };
 

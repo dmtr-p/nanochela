@@ -108,6 +108,75 @@ describe('storeMessage', () => {
     expect(messages).toHaveLength(1);
   });
 
+  it('stores and retrieves reply_context', () => {
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
+
+    storeMessage({
+      id: 'msg-reply',
+      chat_jid: 'group@g.us',
+      sender: '123@s.whatsapp.net',
+      sender_name: 'Alice',
+      content: 'yes do that',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      reply_context: { sender_name: 'Bob', text: 'Should I check?' },
+    });
+
+    const messages = getMessagesSince(
+      'group@g.us',
+      '2024-01-01T00:00:00.000Z',
+      'Andy',
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0].reply_context).toEqual({
+      sender_name: 'Bob',
+      text: 'Should I check?',
+    });
+  });
+
+  it('returns undefined reply_context when not set', () => {
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
+
+    store({
+      id: 'msg-noreply',
+      chat_jid: 'group@g.us',
+      sender: '123@s.whatsapp.net',
+      sender_name: 'Alice',
+      content: 'hello',
+      timestamp: '2024-01-01T00:00:01.000Z',
+    });
+
+    const messages = getMessagesSince(
+      'group@g.us',
+      '2024-01-01T00:00:00.000Z',
+      'Andy',
+    );
+    expect(messages[0].reply_context).toBeUndefined();
+  });
+
+  it('stores reply_context with null text (non-text reply)', () => {
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
+
+    storeMessage({
+      id: 'msg-nontext-reply',
+      chat_jid: 'group@g.us',
+      sender: '123@s.whatsapp.net',
+      sender_name: 'Alice',
+      content: 'nice!',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      reply_context: { sender_name: 'Carol', text: null },
+    });
+
+    const messages = getMessagesSince(
+      'group@g.us',
+      '2024-01-01T00:00:00.000Z',
+      'Andy',
+    );
+    expect(messages[0].reply_context).toEqual({
+      sender_name: 'Carol',
+      text: null,
+    });
+  });
+
   it('upserts on duplicate id+chat_jid', () => {
     storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
 

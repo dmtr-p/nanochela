@@ -41,6 +41,11 @@ export interface RegisteredGroup {
   requiresTrigger?: boolean; // Default: true for groups, false for solo chats
 }
 
+export interface ReplyContext {
+  sender_name: string;
+  text: string | null; // null = non-text message (photo, sticker, etc.)
+}
+
 export interface NewMessage {
   id: string;
   chat_jid: string;
@@ -50,6 +55,7 @@ export interface NewMessage {
   timestamp: string;
   is_from_me?: boolean;
   is_bot_message?: boolean;
+  reply_context?: ReplyContext;
 }
 
 export interface ScheduledTask {

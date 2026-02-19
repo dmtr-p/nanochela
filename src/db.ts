@@ -101,6 +101,13 @@ function createSchema(database: Database): void {
   } catch {
     /* column already exists */
   }
+
+  // Add reply_context column (JSON) for storing reply-to-message context
+  try {
+    database.exec(`ALTER TABLE messages ADD COLUMN reply_context TEXT`);
+  } catch {
+    /* column already exists */
+  }
 }
 
 export function initDatabase(): void {
@@ -213,7 +220,7 @@ export function setLastGroupSync(): void {
  */
 export function storeMessage(msg: NewMessage): void {
   db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     msg.id,
     msg.chat_jid,
@@ -223,6 +230,7 @@ export function storeMessage(msg: NewMessage): void {
     msg.timestamp,
     msg.is_from_me ? 1 : 0,
     msg.is_bot_message ? 1 : 0,
+    msg.reply_context ? JSON.stringify(msg.reply_context) : null,
   );
 }
 
@@ -238,9 +246,10 @@ export function storeMessageDirect(msg: {
   timestamp: string;
   is_from_me: boolean;
   is_bot_message?: boolean;
+  reply_context?: import('./types.js').ReplyContext;
 }): void {
   db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     msg.id,
     msg.chat_jid,
@@ -250,6 +259,7 @@ export function storeMessageDirect(msg: {
     msg.timestamp,
     msg.is_from_me ? 1 : 0,
     msg.is_bot_message ? 1 : 0,
+    msg.reply_context ? JSON.stringify(msg.reply_context) : null,
   );
 }
 
@@ -264,7 +274,7 @@ export function getNewMessages(
   // Filter bot messages using both the is_bot_message flag AND the content
   // prefix as a backstop for messages written before the migration ran.
   const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp
+    SELECT id, chat_jid, sender, sender_name, content, timestamp, reply_context
     FROM messages
     WHERE timestamp > ? AND chat_jid IN (${placeholders})
       AND is_bot_message = 0 AND content NOT LIKE ?
@@ -273,14 +283,23 @@ export function getNewMessages(
 
   const rows = db
     .prepare(sql)
-    .all(lastTimestamp, ...jids, `${botPrefix}:%`) as NewMessage[];
+    .all(lastTimestamp, ...jids, `${botPrefix}:%`) as Array<
+    Omit<NewMessage, 'reply_context'> & { reply_context: string | null }
+  >;
+
+  const messages: NewMessage[] = rows.map((row) => ({
+    ...row,
+    reply_context: row.reply_context
+      ? JSON.parse(row.reply_context)
+      : undefined,
+  }));
 
   let newTimestamp = lastTimestamp;
-  for (const row of rows) {
+  for (const row of messages) {
     if (row.timestamp > newTimestamp) newTimestamp = row.timestamp;
   }
 
-  return { messages: rows, newTimestamp };
+  return { messages, newTimestamp };
 }
 
 export function getMessagesSince(
@@ -291,15 +310,23 @@ export function getMessagesSince(
   // Filter bot messages using both the is_bot_message flag AND the content
   // prefix as a backstop for messages written before the migration ran.
   const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp
+    SELECT id, chat_jid, sender, sender_name, content, timestamp, reply_context
     FROM messages
     WHERE chat_jid = ? AND timestamp > ?
       AND is_bot_message = 0 AND content NOT LIKE ?
     ORDER BY timestamp
   `;
-  return db
+  const rows = db
     .prepare(sql)
-    .all(chatJid, sinceTimestamp, `${botPrefix}:%`) as NewMessage[];
+    .all(chatJid, sinceTimestamp, `${botPrefix}:%`) as Array<
+    Omit<NewMessage, 'reply_context'> & { reply_context: string | null }
+  >;
+  return rows.map((row) => ({
+    ...row,
+    reply_context: row.reply_context
+      ? JSON.parse(row.reply_context)
+      : undefined,
+  }));
 }
 
 export function createTask(
