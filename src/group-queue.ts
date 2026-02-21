@@ -82,24 +82,21 @@ export class GroupQueue {
   enqueueTask(groupJid: string, taskId: string, fn: () => Promise<void>): void {
     if (this.shuttingDown) return;
 
-    const state = this.getGroup(groupJid);
+    // Use a synthetic key so tasks don't compete with per-group message containers.
+    // Tasks only compete on the global MAX_CONCURRENT_CONTAINERS limit.
+    const syntheticKey = `__task__${taskId}`;
+    const state = this.getGroup(syntheticKey);
 
     // Prevent double-queuing of the same task
-    if (state.pendingTasks.some((t) => t.id === taskId)) {
-      logger.debug({ groupJid, taskId }, 'Task already queued, skipping');
-      return;
-    }
-
     if (state.active) {
-      state.pendingTasks.push({ id: taskId, groupJid, fn });
-      logger.debug({ groupJid, taskId }, 'Container active, task queued');
+      logger.debug({ groupJid, taskId }, 'Task already running, skipping');
       return;
     }
 
     if (this.activeCount >= MAX_CONCURRENT_CONTAINERS) {
-      state.pendingTasks.push({ id: taskId, groupJid, fn });
-      if (!this.waitingGroups.includes(groupJid)) {
-        this.waitingGroups.push(groupJid);
+      state.pendingTasks.push({ id: taskId, groupJid: syntheticKey, fn });
+      if (!this.waitingGroups.includes(syntheticKey)) {
+        this.waitingGroups.push(syntheticKey);
       }
       logger.debug(
         { groupJid, taskId, activeCount: this.activeCount },
@@ -109,7 +106,7 @@ export class GroupQueue {
     }
 
     // Run immediately
-    this.runTask(groupJid, { id: taskId, groupJid, fn });
+    this.runTask(syntheticKey, { id: taskId, groupJid: syntheticKey, fn });
   }
 
   registerProcess(

@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 import {
+  DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
   MAIN_GROUP_FOLDER,
@@ -98,19 +99,34 @@ async function runTask(
   const sessionId =
     task.context_mode === 'group' ? sessions[task.group_folder] : undefined;
 
-  // Idle timer: writes _close sentinel after IDLE_TIMEOUT of no output,
-  // so the container exits instead of hanging at waitForIpcMessage forever.
+  // Task containers get their own IPC namespace so _close doesn't
+  // interfere with the group's message container.
+  const ipcNamespace = `${task.group_folder}/__task__${task.id}`;
+
+  // Task idle timeout: 'once' tasks exit quickly after delivering output;
+  // recurring tasks use the full IDLE_TIMEOUT for multi-step work.
+  const TASK_IDLE_MS = task.schedule_type === 'once' ? 30_000 : IDLE_TIMEOUT;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const writeClose = () => {
+    const inputDir = path.join(DATA_DIR, 'ipc', ipcNamespace, 'input');
+    try {
+      fs.mkdirSync(inputDir, { recursive: true });
+      fs.writeFileSync(path.join(inputDir, '_close'), '');
+    } catch {
+      // ignore
+    }
+  };
 
   const resetIdleTimer = () => {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       logger.debug(
         { taskId: task.id },
-        'Scheduled task idle timeout, closing container stdin',
+        'Scheduled task idle timeout, closing container',
       );
-      deps.queue.closeStdin(task.chat_jid);
-    }, IDLE_TIMEOUT);
+      writeClose();
+    }, TASK_IDLE_MS);
   };
 
   try {
@@ -123,9 +139,12 @@ async function runTask(
         chatJid: task.chat_jid,
         isMain,
         isScheduledTask: true,
+        ipcNamespace,
       },
-      (proc, containerName) =>
-        deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
+      () => {
+        // No-op: task containers run under synthetic keys in GroupQueue,
+        // so we don't register them against the group's message state.
+      },
       async (streamedOutput: ContainerOutput) => {
         if (streamedOutput.result) {
           result = streamedOutput.result;
@@ -157,6 +176,14 @@ async function runTask(
     if (idleTimer) clearTimeout(idleTimer);
     error = err instanceof Error ? err.message : String(err);
     logger.error({ taskId: task.id, error }, 'Task failed');
+  }
+
+  // Clean up task-specific IPC directory
+  const taskIpcDir = path.join(DATA_DIR, 'ipc', ipcNamespace);
+  try {
+    fs.rmSync(taskIpcDir, { recursive: true, force: true });
+  } catch {
+    // ignore
   }
 
   const durationMs = Date.now() - startTime;

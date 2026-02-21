@@ -14,6 +14,21 @@ import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 
+/**
+ * Parse a `once` schedule value into a UTC ISO string.
+ * Naive timestamps (no Z or offset) are treated as UTC.
+ * Returns null if the value is invalid.
+ */
+export function parseOnceScheduleValue(value: string): string | null {
+  let rawValue = value;
+  if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(rawValue)) {
+    rawValue += 'Z';
+  }
+  const scheduled = new Date(rawValue);
+  if (isNaN(scheduled.getTime())) return null;
+  return scheduled.toISOString();
+}
+
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
@@ -234,15 +249,14 @@ export async function processTaskIpc(
           }
           nextRun = new Date(Date.now() + ms).toISOString();
         } else if (scheduleType === 'once') {
-          const scheduled = new Date(data.schedule_value);
-          if (isNaN(scheduled.getTime())) {
+          nextRun = parseOnceScheduleValue(data.schedule_value as string);
+          if (!nextRun) {
             logger.warn(
               { scheduleValue: data.schedule_value },
               'Invalid timestamp',
             );
             break;
           }
-          nextRun = scheduled.toISOString();
         }
 
         const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
