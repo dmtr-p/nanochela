@@ -14,6 +14,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  TIMEZONE,
 } from './config.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
@@ -41,6 +42,8 @@ export interface ContainerInput {
   chatJid: string;
   isMain: boolean;
   isScheduledTask?: boolean;
+  /** Unique IPC namespace for task isolation (set by task-scheduler) */
+  ipcNamespace?: string;
   secrets?: Record<string, string>;
 }
 
@@ -60,6 +63,7 @@ interface VolumeMount {
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
+  ipcNamespace?: string,
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
   const homeDir = getHomeDir();
@@ -159,12 +163,26 @@ function buildVolumeMounts(
   const groupIpcDir = path.join(DATA_DIR, 'ipc', group.folder);
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
+
   fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
     readonly: false,
   });
+
+  if (ipcNamespace) {
+    // Task containers: overlay the input dir with a task-specific one
+    // so _close sentinels don't collide with the message container.
+    // Docker bind mounts on subdirs override the parent mount.
+    const taskInputDir = path.join(DATA_DIR, 'ipc', ipcNamespace, 'input');
+    fs.mkdirSync(taskInputDir, { recursive: true });
+    mounts.push({
+      hostPath: taskInputDir,
+      containerPath: '/workspace/ipc/input',
+      readonly: false,
+    });
+  }
 
   // Mount agent-runner source from host — recompiled on container startup.
   // Bypasses Docker's build cache for code changes.
@@ -216,6 +234,7 @@ function buildContainerArgs(
     }
   }
 
+  args.push('-e', `TZ=${TIMEZONE}`);
   args.push(CONTAINER_IMAGE);
 
   return args;
@@ -232,7 +251,7 @@ export async function runContainerAgent(
   const groupDir = path.join(GROUPS_DIR, group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
-  const mounts = buildVolumeMounts(group, input.isMain);
+  const mounts = buildVolumeMounts(group, input.isMain, input.ipcNamespace);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
   const containerArgs = buildContainerArgs(mounts, containerName);

@@ -114,7 +114,7 @@ describe('GroupQueue', () => {
 
   // --- Tasks prioritized over messages ---
 
-  it('drains tasks before messages for same group', async () => {
+  it('runs tasks independently from message containers', async () => {
     const executionOrder: string[] = [];
     let resolveFirst: () => void;
 
@@ -131,27 +131,31 @@ describe('GroupQueue', () => {
 
     queue.setProcessMessagesFn(processMessages);
 
-    // Start processing messages (takes the active slot)
+    // Start processing messages (takes the active slot for group1)
     queue.enqueueMessageCheck('group1@g.us');
     jest.advanceTimersByTime(10);
     await Promise.resolve();
 
-    // While active, enqueue both a task and pending messages
+    // While message container is active, enqueue a task for the same group.
+    // With synthetic keys, the task runs on its own slot immediately
+    // (doesn't wait for the message container to finish).
     const taskFn = jest.fn(async () => {
       executionOrder.push('task');
     });
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
-    queue.enqueueMessageCheck('group1@g.us');
+    jest.advanceTimersByTime(10);
+    await flushPromises();
 
-    // Release the first processing
+    // Task should have run even though message container is still active
+    expect(executionOrder).toContain('task');
+    expect(taskFn).toHaveBeenCalled();
+
+    // Release the message container
     resolveFirst!();
     jest.advanceTimersByTime(10);
     await flushPromises();
 
-    // Task should have run before the second message check
-    expect(executionOrder[0]).toBe('messages'); // first call
-    expect(executionOrder[1]).toBe('task'); // task runs first in drain
-    // Messages would run after task completes
+    expect(executionOrder).toContain('messages');
   });
 
   // --- Retry with backoff on failure ---

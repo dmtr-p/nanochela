@@ -5,7 +5,7 @@ import { readEnvFile } from './env.js';
 // Read config values from .env (falls back to process.env).
 // Secrets are NOT read here — they stay on disk and are loaded only
 // where needed (container-runner.ts) to avoid leaking to child processes.
-const envConfig = readEnvFile(['ASSISTANT_NAME', 'TELEGRAM_BOT_TOKEN']);
+const envConfig = readEnvFile(['ASSISTANT_NAME', 'TELEGRAM_BOT_TOKEN', 'TZ']);
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
@@ -57,6 +57,8 @@ export const TRIGGER_PATTERN = new RegExp(
 );
 
 // Timezone for scheduled tasks (cron expressions, etc.)
-// Uses system timezone by default
+// Set TZ in .env to match container's tzdata (e.g. Europe/Kyiv)
 export const TIMEZONE =
-  process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  process.env.TZ ||
+  envConfig.TZ ||
+  Intl.DateTimeFormat().resolvedOptions().timeZone;
